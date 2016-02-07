@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# read the temperature from the arduino and stores it the rrd database
+# read the temperature from the arduino and stores it in the influxdb
 
 use strict;
 use warnings;
@@ -7,11 +7,9 @@ use Date::Manip;
 use Device::SerialPort;
 use Config::Simple;
 use Time::HiRes;
-use RRDs;
 use InfluxDB;
 
 my $temperature_dir = "/var/lib/temperature/";
-my $temperature_rrd = $temperature_dir."temperature.rrd";
 my $status = "";
 # debug
 my $debug = 0;
@@ -110,10 +108,9 @@ if ($output) {
     print_temp($tempbuf);
 } elsif (!$debug) {
     update_influxdb(%data);
-    update_rrd(%data);
     log_temp($tempbuf);
 } else {
-    print "not updating rrd\n";
+    print "not updating database\n";
 }
 
 exit_cleanly(0);
@@ -143,54 +140,6 @@ sub print_usage {
             -d : debug output\n";
 
     exit (1);
-}
-
-#####################
-# Create rrd
-sub create_rrd {
-# RRA: average data of 300*288 secs = 1 day
-# RRA: average data of 300*6*336 secs = 1 week
-# RRA: average data of 300*12*744 secs = 1 month
-# RRA: average data of 300*288*365 secs = 1 year
-# RRA: min data of 300*288 secs = 1 day
-# RRA: min data of 300*6*336 secs = 1 week
-# RRA: min data of 300*12*744 secs = 1 month
-# RRA: min data of 300*288*365 secs = 1 year
-# RRA: max data of 300*288 secs = 1 day
-# RRA: max data of 300*6*336 secs = 1 week
-# RRA: max data of 300*12*744 secs = 1 month
-# RRA: max data of 300*288*365 secs = 1 year
-# RRA: last data of 300*288 secs = 1 day
-# RRA: last data of 300*6*336 secs = 1 week
-# RRA: last data of 300*12*744 secs = 1 month
-# RRA: last data of 300*288*365 secs = 1 year
-    RRDs::create($temperature_rrd,
-            "--step=300",
-            "DS:sensor1:GAUGE:600:0:U",
-            "DS:sensor2:GAUGE:600:0:U",
-            "DS:sensor3:GAUGE:600:0:U",
-            "DS:sensor4:GAUGE:600:0:U",
-            "DS:sensor5:GAUGE:600:0:U",
-            "RRA:AVERAGE:0.5:1:288",
-            "RRA:AVERAGE:0.5:6:336",
-            "RRA:AVERAGE:0.5:12:744",
-            "RRA:AVERAGE:0.5:288:365",
-            "RRA:MIN:0.5:1:288",
-            "RRA:MIN:0.5:6:336",
-            "RRA:MIN:0.5:12:744",
-            "RRA:MIN:0.5:288:365",
-            "RRA:MAX:0.5:1:288",
-            "RRA:MAX:0.5:6:336",
-            "RRA:MAX:0.5:12:744",
-            "RRA:MAX:0.5:288:365",
-            "RRA:LAST:0.5:1:288",
-            "RRA:LAST:0.5:6:336",
-            "RRA:LAST:0.5:12:744",
-            "RRA:LAST:0.5:288:365");
-    my $err = RRDs::error;
-    die("ERROR: while creating $temperature_rrd: $err\n") if $err;
-    print("OK\n");
-    exit(0);
 }
 
 #####################
@@ -263,27 +212,6 @@ sub print_temp {
     my $string = shift;
     $string =~ s/ - /\n/g;
     print $string;
-}
-
-#####################
-# Update rdd
-# @param @data
-sub update_rrd {
-    my @data = shift;
-
-    my $rrdata = "N";
-    my $i = 0;
-    for ($i = 0; $i < 5; $i++) {
-        if (defined $data{$SENSORS[$i]}) {
-            $rrdata .= ":" . $data{$SENSORS[$i]};
-        } else {
-            $rrdata .= ":";
-        }
-    }
-
-    RRDs::update($temperature_rrd, $rrdata);
-    my $err = RRDs::error;
-    die_cleanly("ERROR: while updating $temperature_rrd: $err\n") if $err;
 }
 
 #####################

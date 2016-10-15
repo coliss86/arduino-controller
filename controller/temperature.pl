@@ -7,7 +7,6 @@ use Date::Manip;
 use Device::SerialPort;
 use Config::Simple;
 use Time::HiRes;
-use InfluxDB;
 
 my $temperature_dir = "/var/lib/temperature/";
 my $status = "";
@@ -107,7 +106,6 @@ my $tempbuf = temp_to_buff(%data);
 if ($output) {
     print_temp($tempbuf);
 } elsif (!$debug) {
-    update_influxdb(%data);
     log_temp($tempbuf);
 } else {
     print "not updating database\n";
@@ -173,40 +171,7 @@ sub log_temp {
 }
 
 #####################
-# update influxdb
-# @param %data
-sub update_influxdb {
-    my @data = shift;
-
-    my @points = ();
-    my @columns = ();
-    my $i = 0;
-    for ($i = 0; $i < 5; $i++) {
-        if (defined $data{$SENSORS[$i]}) {
-            push(@points, $data{$SENSORS[$i]});
-            push(@columns, $SENSORS_NAMES[$i]);
-        }
-    }
-
-    my $ix = InfluxDB->new(
-        host     => '127.0.0.1',
-        port     => 8086,
-        username => 'root',
-        password => 'root',
-        database => 'temperature',
-    );
- 
-    $ix->write_points(
-        data => {
-            name    => "temperature",
-            columns => [@columns],
-            points  => [[@points]],
-        },
-    ) or die_cleanly("influx db error : " . $ix->errstr);
-}
-
-#####################
-# print temperature 
+# print temperature
 # @param @string
 sub print_temp {
     my $string = shift;
@@ -301,4 +266,3 @@ sub signal_handler {
     my $signame = shift;
     die_cleanly("Signal [$signame] catched");
 }
-

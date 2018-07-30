@@ -112,9 +112,9 @@ ROM = [ 28 6 AD 33 4 0 0 2D ] - Temperature : 15.94 °C
 
 ### Perl
 
-The perl script handles the communication described above and offer high level features.
+The perl script handles the communication described above and offer a cli usage.
 
-Thoses scripts requires the perl lib ```device-serialport```.
+Thoses scripts requires the following perl lib : `libdevice-serialport-perl` and `libconfig-simple-perl`.
 
 #### Outputs controller
 

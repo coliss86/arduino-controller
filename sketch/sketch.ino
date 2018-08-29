@@ -1,233 +1,256 @@
 #include "OneWire.h"
+#include "Cmd.h"
 /**
  * Control the output state of the arduino via serial over usb.
  * Care must be taken for relays : their output are inversed : a pin low means the relay is closed
- */
+*/
 
-
-#define NB_OUTPUT   10
-#define PIN_START   2
 #define SF(a) Serial.println(F(a))
+#define SpF(a) Serial.print(F(a))
 #define EOT() SF("   ")
 #define PROMPT() Serial.print(F("> "))
 
 //#define DEBUG
 
-OneWire ds(10);  // on pin 10
+#define PIN_TEMP 2
 
-void print_help();
+#define PIN_LOAD  9
+#define PIN_MEMORY  10
+#define PIN_DISK 11
 
-// pin 6 - 9 are connected to relay
-const int relays[NB_OUTPUT] = {0,0,0,0,0,0,1,1,1,1};
+#define PIN_START 4
+#define PIN_END  8
 
-byte state = 0;
-byte pin = 0;
-char buffer[30];
-char str_temp[6];
-byte i;
-byte present = 0;
-byte type_s;
-byte data[12];
-byte addr[8];
-byte signBit = 0;
-float temp;
-#ifdef DEBUG
-int cpt;
-#endif
+OneWire ds(PIN_TEMP);
+
+// pin connected to relays
+const int relays[PIN_END - PIN_START + 1] = {0, 1, 1, 1, 1};
+static char buffer[30];
 
 void setup() {
-    for (i = PIN_START; i< NB_OUTPUT; i++) {
-        pinMode(i, OUTPUT);
-        set_pin_state(i, LOW);
-    }
+  Serial.begin(9600);
 
-    Serial.begin(9600);
-    PROMPT();
+  for (byte i = PIN_START; i <= PIN_END; i++) {
+    pinMode(i, OUTPUT);
+    set_pin_state(i, !relays[i - PIN_START]);
+  }
+
+  pinMode(PIN_LOAD, OUTPUT);
+  pinMode(PIN_DISK, OUTPUT);
+
+  cmdInit(&Serial);
+
+  cmdAdd("h", print_help);
+  cmdAdd("help", print_help);
+  cmdAdd("load", set_load);
+  cmdAdd("disk", set_disk);
+  cmdAdd("memory", set_memory);
+  cmdAdd("s", print_io_status);
+  cmdAdd("status", print_io_status);
+  cmdAdd("io", print_io_status);
+  cmdAdd("t", print_temperature);
+  cmdAdd("temp", print_temperature);
+  cmdAdd("pin", parse_pin_state);
+
+  PROMPT();
 }
 
-void print_io_status() {
-    SF("\r\nI/O Status :");
-#ifdef DEBUG
-    Serial.print("CPT : ");
-    Serial.println(cpt);
-    cpt++;
-#endif
-    for (i = PIN_START; i < NB_OUTPUT; i++) {
-        if (relays[i]) {
-            sprintf(buffer, "  %d => %d (R)", i, !digitalRead(i));
-        } else {
-            sprintf(buffer, "  %d => %d", i, digitalRead(i));
-        }
-        Serial.println(buffer);
-    }
-    EOT();
-    state = 0;
-}
-
-void set_pin_state(uint8_t pin, uint8_t val) {
-    if (relays[pin] && val == HIGH) {
-        digitalWrite(pin, LOW);
-    } else if (relays[pin] && val == LOW) {
-        digitalWrite(pin, HIGH);
+void print_io_status(int arg_cnt, char **args) {
+  SF("\r\nI/O Status :");
+  byte i;
+  for (i = PIN_START; i <= PIN_END; i++) {
+    if (relays[i - PIN_START]) {
+      sprintf(buffer, "  %d => %d (R)", i, !digitalRead(i));
     } else {
-        digitalWrite(pin, val);
+      sprintf(buffer, "  %d => %d", i, digitalRead(i));
     }
+    Serial.println(buffer);
+  }
+  EOT();
 }
 
-void print_temperature() {
-    SF("\r\nTemperature :");
+void parse_pin_state(int arg_cnt, char **args) {
+  if (arg_cnt == 3) {
+    int pin = atoi(args[1]);
+    int value = atoi(args[2]);
+    set_pin_state(pin, value);
+    SF("OK");
+  } else {
+    print_help(0, NULL);
+  }
+}
+void set_pin_state(byte pin, byte value) {
+  if (pin < PIN_START || pin > PIN_END) {
+    SF("Invalid pin number");
+    print_pin_range();
+  }
+  if (relays[pin-PIN_START]) {
+    // for relay pin, the state must be inversed
+    if (value == HIGH) {
+      digitalWrite(pin, LOW);
+    } else {
+      digitalWrite(pin, HIGH);
+    }
+  } else {
+    digitalWrite(pin, value);
+  }
+}
 
-    while ( ds.search(addr)) {
+void print_temperature(int arg_cnt, char **args) {
+  char str_temp[6];
+  byte i;
+  byte present = 0;
+  byte type_s;
+  byte data[12];
+  byte addr[8];
+  byte signBit = 0;
+  float temp;
 
-        Serial.print(F("ROM = [ "));
-        for( i = 0; i < 8; i++) {
-            Serial.print(addr[i], HEX);
-            Serial.write(' ');
-        }
-        Serial.print(F("]"));
 
-        if (OneWire::crc8(addr, 7) != addr[7]) {
-            SF("CRC is not valid!");
-            continue;
-        }
+  SF("\r\nTemperature :");
+  
+  while ( ds.search(addr)) {
 
-        // the first ROM byte indicates which chip
-        switch (addr[0]) {
-            case 0x10:
+    SpF("ROM = [ ");
+    
+    for ( i = 0; i < 8; i++) {
+      Serial.print(addr[i], HEX);
+      Serial.write(' ');
+    }
+    SpF("]");
 
-#ifdef DEBUG
-                SF("  Chip = DS18S20");  // or old DS1820
-#endif
-                type_s = 1;
-                break;
-            case 0x28:
-#ifdef DEBUG
-                SF("  Chip = DS18B20");
-#endif
-                type_s = 0;
-                break;
-            case 0x22:
-#ifdef DEBUG
-                SF("  Chip = DS1822");
-#endif
-                type_s = 0;
-                break;
-            default:
-                SF("Device is not a DS18x20 family device.");
-                continue;
-        } 
-
-        ds.reset();
-        ds.select(addr);
-        ds.write(0x44,1);         // start conversion, with parasite power on at the end
-
-        delay(1000);     // maybe 750ms is enough, maybe not
-        // we might do a ds.depower() here, but the reset will take care of it.
-
-        present = ds.reset();
-        ds.select(addr);    
-        ds.write(0xBE);         // Read Scratchpad
-
-#ifdef DEBUG
-        Serial.print("  Data = ");
-        Serial.print(present,HEX);
-        Serial.print(" ");
-#endif
-        for ( i = 0; i < 9; i++) {           // we need 9 bytes
-            data[i] = ds.read();
-        }
-#ifdef DEBUG
-        Serial.print(" CRC=");
-        Serial.print(OneWire::crc8(data, 8), HEX);
-        Serial.println();
-#endif
-
-        // convert the data to actual temperature
-
-        if (type_s) {
-
-//            unsigned int raw = (data[1] << 8) | data[0];
-//            raw = raw << 3; // 9 bit resolution default
-//            if (data[7] == 0x10) {
-//                // count remain gives full 12 bit resolution
-//                raw = (raw & 0xFFF0) + 12 - data[6];
-//            }
-//            sprintf(buffer, " - Temperature = %d °C", raw/16);
-        } else {
-            temp = ((data[1] << 8) | data[0]) * 0.0625;
-            // /!\ le sprintf d'un float n'est pas supporté, il faut passer par dtostrf()
-            dtostrf(temp, 4, 2, str_temp);            
-            sprintf(buffer, " - Temperature : %s °C", str_temp);
-
-        }
-        Serial.println(buffer);
+    if (OneWire::crc8(addr, 7) != addr[7]) {
+      SF("CRC is not valid!");
+      continue;
     }
 
-    ds.reset_search();
+    // the first ROM byte indicates which chip
+    switch (addr[0]) {
+      case 0x10:
 
-    EOT();
-    state = 0;
+#ifdef DEBUG
+        SF("  Chip = DS18S20");  // or old DS1820
+#endif
+        type_s = 1;
+        break;
+      case 0x28:
+#ifdef DEBUG
+        SF("  Chip = DS18B20");
+#endif
+        type_s = 0;
+        break;
+      case 0x22:
+#ifdef DEBUG
+        SF("  Chip = DS1822");
+#endif
+        type_s = 0;
+        break;
+      default:
+        SF("Device is not a DS18x20 family device.");
+        continue;
+    }
+
+    ds.reset();
+    ds.select(addr);
+    ds.write(0x44, 1);        // start conversion, with parasite power on at the end
+
+    delay(1000);     // maybe 750ms is enough, maybe not
+    // we might do a ds.depower() here, but the reset will take care of it.
+
+    present = ds.reset();
+    ds.select(addr);
+    ds.write(0xBE);         // Read Scratchpad
+
+#ifdef DEBUG
+    SpF("  Data = ");
+    Serial.print(present, HEX);
+    SpF(" ");
+#endif
+    for ( i = 0; i < 9; i++) {           // we need 9 bytes
+      data[i] = ds.read();
+    }
+#ifdef DEBUG
+    SpF(" CRC=");
+    SpF(OneWire::crc8(data, 8), HEX);
+    SF("");
+#endif
+
+    // convert the data to actual temperature
+    if (type_s) {
+
+      //            unsigned int raw = (data[1] << 8) | data[0];
+      //            raw = raw << 3; // 9 bit resolution default
+      //            if (data[7] == 0x10) {
+      //                // count remain gives full 12 bit resolution
+      //                raw = (raw & 0xFFF0) + 12 - data[6];
+      //            }
+      //            sprintf(buffer, " - Temperature = %d °C", raw/16);
+    } else {
+      temp = ((data[1] << 8) | data[0]) * 0.0625;
+      // /!\ le sprintf d'un float n'est pas supporté, il faut passer par dtostrf()
+      dtostrf(temp, 4, 2, str_temp);
+      sprintf(buffer, " - Temperature : %s °C", str_temp);
+
+    }
+    Serial.println(buffer);
+  }
+
+  ds.reset_search();
+
+  EOT();
 }
 
 void loop()
 {
-    if (Serial.available() > 0) {
-        // read the incoming byte:
-        char r = Serial.read();
-        Serial.print(r);
-        if (r == 's') {
-            print_io_status();
-            PROMPT();
-        } else if (r == 't') {
-            print_temperature();
-            PROMPT();
-        } else if (r == 'h') {
-            print_help();
-            PROMPT();
-        } else {
-            if (state == 2) {
-                if (r == '1') {
-                    set_pin_state(pin, HIGH);
-                    SF("\r\n  OK");
-                } else if (r == '0') {
-                    set_pin_state(pin, LOW);
-                    SF("\r\n  OK");
-                } else {
-                    SF("\r\n/!\\ Syntax error, format <pin number>=<0,1>");
-                }
-                PROMPT();
-                state = 0;
-            } else if (state == 1 && r == '=') {
-                state = 2;
-            } else if (state == 0) {
-                pin = r - '0';
-                if (pin >= PIN_START && pin < NB_OUTPUT) {
-                    state = 1;
-                }
-            } else {
-                SF("\r\n/!\\ Syntax error, format <pin number>=<0,1>");
-                PROMPT();
-                state = 0;
-            }
-        }
-    }
+  cmdPoll();
 }
 
-void print_help() {
-    SF("\r\n    ___          _       _");
-    SF("   / _ \\        | |     (_)");
-    SF("  / /_\\ \\_ __ __| |_   _ _ _ __   ___");
-    SF("  |  _  | '__/ _` | | | | | '_ \\ / _ \\");
-    SF("  | | | | | | (_| | |_| | | | | | (_) |");
-    SF("  \\_| |_/_|  \\__,_|\\__,_|_|_| |_|\\___/");
+void set_load(int arg_cnt, char **args) {
+  vumeter(arg_cnt, args, PIN_LOAD);
+}
 
-    SF("\r\n  Build " __DATE__ " : " __TIME__ );
-    SF("\r\nHelp\r\nCommand available :");
-    SF("      <pin number [2-9]>=<0,1>");
-    SF("      h - help");
-    SF("      s - i/o status");
-    SF("      t - temperature\r\n");
-    state = 0;
+void set_disk(int arg_cnt, char **args) {  
+  vumeter(arg_cnt, args, PIN_DISK);
+}
+
+void set_memory(int arg_cnt, char **args) {  
+  vumeter(arg_cnt, args, PIN_MEMORY);
+}
+
+void vumeter(int arg_cnt, char **args, byte pin) {
+  if (arg_cnt == 2) {
+    int val = atoi(args[1]); // value in %
+    analogWrite(pin, val * 255 / 100);
+    SF("OK");
+  }
+}
+
+void print_pin_range() {
+  SpF("<pin number [");
+  Serial.print(PIN_START);
+  SpF("-");
+  Serial.print(PIN_END);
+  SpF("]> <0,1>");
+}
+
+void print_help(int arg_cnt, char **args) {
+  SF("\r\n    ___          _       _");
+  SF("   / _ \\        | |     (_)");
+  SF("  / /_\\ \\_ __ __| |_   _ _ _ __   ___");
+  SF("  |  _  | '__/ _` | | | | | '_ \\ / _ \\");
+  SF("  | | | | | | (_| | |_| | | | | | (_) |");
+  SF("  \\_| |_/_|  \\__,_|\\__,_|_|_| |_|\\___/");
+
+  SF("\r\nCommands available :");
+  SpF("  ");
+  print_pin_range();
+  SF(" - set pin value");
+  SF("  h|help                   - help");
+  SF("  s|io|status              - i/o status");
+  SF("  t|temp                   - temperature");
+  SF("  load <val>               - set load value");
+  SF("  disk <val>               - set disk value");
+  SF("  memory <val>             - set memory value");
 }
 
 // vim: syntax=c

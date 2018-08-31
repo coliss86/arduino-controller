@@ -1,8 +1,8 @@
 #include "OneWire.h"
 #include "Cmd.h"
 /**
- * Control the output state of the arduino via serial over usb.
- * Care must be taken for relays : their output are inversed : a pin low means the relay is closed
+   Control the output state of the arduino via serial over usb.
+   Care must be taken for relays : their output are inversed : a pin low means the relay is closed
 */
 
 #define SF(a) Serial.println(F(a))
@@ -14,8 +14,8 @@
 
 #define PIN_TEMP 2
 
-#define PIN_LOAD  9
-#define PIN_MEMORY  10
+#define PIN_LOAD1 9
+#define PIN_LOAD5 10
 #define PIN_DISK 11
 
 #define PIN_START 4
@@ -35,16 +35,17 @@ void setup() {
     set_pin_state(i, !relays[i - PIN_START]);
   }
 
-  pinMode(PIN_LOAD, OUTPUT);
+  pinMode(PIN_LOAD1, OUTPUT);
+  pinMode(PIN_LOAD5, OUTPUT);
   pinMode(PIN_DISK, OUTPUT);
 
   cmdInit(&Serial);
 
   cmdAdd("h", print_help);
   cmdAdd("help", print_help);
-  cmdAdd("load", set_load);
+  cmdAdd("load1", set_load1);
+  cmdAdd("load5", set_load5);
   cmdAdd("disk", set_disk);
-  cmdAdd("memory", set_memory);
   cmdAdd("s", print_io_status);
   cmdAdd("status", print_io_status);
   cmdAdd("io", print_io_status);
@@ -189,7 +190,7 @@ void print_temperature(int arg_cnt, char **args) {
       temp = ((data[1] << 8) | data[0]) * 0.0625;
       // /!\ le sprintf d'un float n'est pas supporté, il faut passer par dtostrf()
       dtostrf(temp, 4, 2, str_temp);
-      sprintf(buffer, " - Temperature : %s °C", str_temp);
+      sprintf(buffer, " - Temp : %s °C", str_temp);
 
     }
     Serial.println(buffer);
@@ -205,16 +206,16 @@ void loop()
   cmdPoll();
 }
 
-void set_load(int arg_cnt, char **args) {
-  vumeter(arg_cnt, args, PIN_LOAD);
+void set_load1(int arg_cnt, char **args) {
+  vumeter(arg_cnt, args, PIN_LOAD1);
+}
+
+void set_load5(int arg_cnt, char **args) {  
+  vumeter(arg_cnt, args, PIN_LOAD5);
 }
 
 void set_disk(int arg_cnt, char **args) {  
   vumeter(arg_cnt, args, PIN_DISK);
-}
-
-void set_memory(int arg_cnt, char **args) {  
-  vumeter(arg_cnt, args, PIN_MEMORY);
 }
 
 void vumeter(int arg_cnt, char **args, byte pin) {
@@ -242,15 +243,15 @@ void print_help(int arg_cnt, char **args) {
   SF("  \\_| |_/_|  \\__,_|\\__,_|_|_| |_|\\___/");
 
   SF("\r\nCommands available :");
-  SpF("  ");
+  SpF("  pin ");
   print_pin_range();
   SF(" - set pin value");
-  SF("  h|help                   - help");
-  SF("  s|io|status              - i/o status");
-  SF("  t|temp                   - temperature");
-  SF("  load <val>               - set load value");
-  SF("  disk <val>               - set disk value");
-  SF("  memory <val>             - set memory value");
+  SF("  h|help                       - help");
+  SF("  s|io|status                  - i/o status");
+  SF("  t|temp                       - temperature");
+  SF("  load1 <val>                  - set load (1 min) value (log scaled)");
+  SF("  load5 <val>                  - set load (5 min) value (log scaled)");
+  SF("  disk <val>                   - set disk value");
 }
 
 // vim: syntax=c

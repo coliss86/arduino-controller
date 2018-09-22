@@ -221,6 +221,7 @@ void set_disk(int arg_cnt, char **args) {
 void vumeter(int arg_cnt, char **args, byte pin) {
   if (arg_cnt == 2) {
     int val = atoi(args[1]); // value in %
+    val = max(min(val, 100), 0); // check range 0-100
     analogWrite(pin, val * 255 / 100);
     SF("OK");
   }

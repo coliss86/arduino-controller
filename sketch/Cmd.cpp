@@ -91,6 +91,11 @@ void cmd_parse(char *cmd)
 
     fflush(stdout);
 
+    if (strlen(cmd) == 0) {
+      cmd_display();
+      return;
+    }
+
     // parse the command line statement and break it up into space-delimited
     // strings. the array of strings will be saved in the argv array.
     argv[i] = strtok(cmd, " ");

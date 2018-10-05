@@ -95,7 +95,7 @@ To setup pins output for relay, you'll need to edit sketch.ino to change the arr
 * `0` is normal output
 * `1` is for inverted output
 
-```
+```C
 // pin 6 - 9 are connected to relay
 const int relays[NB_OUTPUT] = {0,0,0,0,0,0,1,1,1,1};
 ```
